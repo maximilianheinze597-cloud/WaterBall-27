@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+
+<title>WATERBALL 27</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  -webkit-user-select:none;
+  user-select:none;
+  touch-action:none;
+}
+
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#06111c;
+  font-family:Arial,Helvetica,sans-serif;
+}
+
+#game{
+  position:fixed;
+  inset:0;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+#hud{
+  position:fixed;
+  top:env(safe-area-inset-top,10px);
+  left:50%;
+  transform:translateX(-50%);
+  z-index:5;
+  color:white;
+  text-align:center;
+  pointer-events:none;
+}
+
+.score{
+  display:inline-flex;
+  align-items:center;
+  gap:14px;
+  padding:8px 18px;
+  border-radius:18px;
+  background:rgba(4,12,22,.78);
+  backdrop-filter:blur(10px);
+  font-weight:800;
+  font-size:19px;
+}
+
+.score span{
+  opacity:.55;
+  font-size:13px;
+}
+
+#clock{
+  margin-top:4px;
+  font-size:13px;
+  opacity:.8;
+}
+
+#staminaBox{
+  position:fixed;
+  left:50%;
+  bottom:20px;
+  transform:translateX(-50%);
+  width:145px;
+  height:9px;
+  border-radius:10px;
+  background:rgba(0,0,0,.45);
+  overflow:hidden;
+  z-index:8;
+}
+
+#stamina{
+  width:100%;
+  height:100%;
+  background:#52d6ff;
+  transition:width .1s linear;
+}
+
+#joystick{
+  position:fixed;
+  left:24px;
+  bottom:25px;
+  width:135px;
+  height:135px;
+  border-radius:50%;
+  background:rgba(255,255,255,.12);
+  border:2px solid rgba(255,255,255,.22);
+  z-index:10;
+}
+
+#stick{
+  position:absolute;
+  width:62px;
+  height:62px;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:rgba(255,255,255,.48);
+  box-shadow:0 5px 18px rgba(0,0,0,.3);
+}
+
+.actions{
+  position:fixed;
+  right:20px;
+  bottom:27px;
+  display:grid;
+  grid-template-columns:78px 78px;
+  gap:13px;
+  z-index:10;
+}
+
+.action{
+  width:78px;
+  height:78px;
+  border-radius:50%;
+  border:1px solid rgba(255,255,255,.3);
+  color:white;
+  font-weight:900;
+  background:rgba(5,16,28,.68);
+  backdrop-filter:blur(8px);
+}
+
+.action:active{
+  transform:scale(.92);
+}
+
+#shoot{
+  background:rgba(220,55,65,.75);
+}
+
+#pass{
+  background:rgba(20,110,180,.75);
+}
+
+#switch{
+  background:rgba(20,20,30,.78);
+}
+
+#message{
+  position:fixed;
+  left:50%;
+  top:52%;
+  transform:translate(-50%,-50%);
+  color:white;
+  font-size:30px;
+  font-weight:900;
+  text-shadow:0 3px 15px #000;
+  opacity:0;
+  z-index:20;
+  pointer-events:none;
+}
+
+#orientation{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:#06111c;
+  color:white;
+  z-index:100;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:30px;
+  font-size:22px;
+  font-weight:800;
+}
+
+@media (orientation:portrait){
+  #orientation{
+    display:flex;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div id="game"></div>
+
+<div id="hud">
+  <div class="score">
+    <b id="homeScore">0</b>
+    <span>SV LOK GÖRLITZ</span>
+    <b>:</b>
+    <span>SVV PLAUEN</span>
+    <b id="awayScore">0</b>
+  </div>
+  <div id="clock">1. Viertel · 8:00</div>
+</div>
+
+<div id="staminaBox">
+  <div id="stamina"></div>
+</div>
+
+<div id="joystick">
+  <div id="stick"></div>
+</div>
+
+<div class="actions">
+  <button class="action" id="switch">WECHSEL</button>
+  <button class="action" id="pass">PASS</button>
+  <button class="action" id="shoot">WURF</button>
+  <button class="action" id="sprint">SPRINT</button>
+</div>
+
+<div id="message"></div>
+
+<div id="orientation">
+  📱<br><br>
+  Bitte drehe dein Handy ins Querformat.
+</div>
+
+<script type="module">
+
+import * as THREE from
+"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+
+/* =========================================================
+   GRUNDLAGEN
+========================================================= */
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x071421);
+
+const camera = new THREE.PerspectiveCamera(
+  48,
+  innerWidth / innerHeight,
+  .1,
+  100
+);
+
+camera.position.set(0,14,18);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias:true,
+  powerPreference:"high-performance"
+});
+
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+
+document.querySelector("#game").appendChild(renderer.domElement);
+
+
+/* =========================================================
+   LICHT
+========================================================= */
+
+const hemi = new THREE.HemisphereLight(
+  0xbfeeff,
+  0x06121c,
+  2
+);
+
+scene.add(hemi);
+
+const light = new THREE.DirectionalLight(
+  0xffffff,
+  2.5
+);
+
+light.position.set(-8,18,10);
+light.castShadow=true;
+scene.add(light);
+
+
+/* =========================================================
+   BECKEN
+========================================================= */
+
+const pool = new THREE.Mesh(
+  new THREE.BoxGeometry(25,.5,13),
+  new THREE.MeshStandardMaterial({
+    color:0x087fb0,
+    roughness:.25,
+    metalness:.05
+  })
+);
+
+pool.position.y=-.8;
+scene.add(pool);
+
+
+/* Wasserfläche */
+
+const water = new THREE.Mesh(
+  new THREE.PlaneGeometry(25,13,60,30),
+  new THREE.MeshPhysicalMaterial({
+    color:0x18a9d0,
+    transparent:true,
+    opacity:.72,
+    roughness:.1,
+    metalness:.05
+  })
+);
+
+water.rotation.x=-Math.PI/2;
+water.position.y=-.45;
+
+scene.add(water);
+
+
+/* Spielfeld */
+
+function line(x,z,w,d,color=0xffffff){
+
+  const mesh=new THREE.Mesh(
+    new THREE.BoxGeometry(w,.025,d),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent:true,
+      opacity:.75
+    })
+  );
+
+  mesh.position.set(x,-.41,z);
+  scene.add(mesh);
+}
+
+line(0,-6.0,24,.06);
+line(0,6.0,24,.06);
+
+line(-12,0,.06,12);
+line(12,0,.06,12);
+
+line(0,0,.035,12,0xffff00);
+
+line(-5,0,.025,12,0xffffff);
+line(5,0,.025,12,0xffffff);
+
+
+/* =========================================================
+   TORE
+========================================================= */
+
+function createGoal(z,rot){
+
+  const group=new THREE.Group();
+
+  const mat=new THREE.MeshStandardMaterial({
+    color:0xffffff,
+    roughness:.55
+  });
+
+  const post1=new THREE.Mesh(
+    new THREE.CylinderGeometry(.12,.12,2.2,10),
+    mat
+  );
+
+  const post2=post1.clone();
+
+  post1.position.x=-3;
+  post2.position.x=3;
+
+  const bar=new THREE.Mesh(
+    new THREE.CylinderGeometry(.12,.12,6,10),
+    mat
+  );
+
+  bar.rotation.z=Math.PI/2;
+  bar.position.y=1.1;
+
+  group.add(post1,post2,bar);
+
+  group.position.set(0,-.35,z);
+  group.rotation.y=rot;
+
+  scene.add(group);
+
+  return group;
+}
+
+createGoal(-6.25,0);
+createGoal(6.25,Math.PI);
+
+
+/* =========================================================
+   SPIELER
+========================================================= */
+
+const players=[];
+
+const homeColor=0x0d57a6;
+const awayColor=0xc62d36;
+
+
+/* Wasserballkappe */
+
+function cap(color,number){
+
+  const group=new THREE.Group();
+
+  const dome=new THREE.Mesh(
+    new THREE.SphereGeometry(.36,.16,.12),
+    new THREE.MeshStandardMaterial({
+      color
+    })
+  );
+
+  dome.scale.y=.65;
+
+  group.add(dome);
+
+  const earL=new THREE.Mesh(
+    new THREE.CylinderGeometry(.11,.11,.16,10),
+    new THREE.MeshStandardMaterial({color})
+  );
+
+  const earR=earL.clone();
+
+  earL.rotation.z=Math.PI/2;
+  earR.rotation.z=Math.PI/2;
+
+  earL.position.x=-.32;
+  earR.position.x=.32;
+
+  group.add(earL,earR);
+
+  const canvas=document.createElement("canvas");
+  canvas.width=128;
+  canvas.height=128;
+
+  const ctx=canvas.getContext("2d");
+
+  ctx.fillStyle="white";
+  ctx.font="bold 80px Arial";
+  ctx.textAlign="center";
+  ctx.textBaseline="middle";
+  ctx.fillText(number,64,68);
+
+  const tex=new THREE.CanvasTexture(canvas);
+
+  const num=new THREE.Mesh(
+    new THREE.PlaneGeometry(.3,.3),
+    new THREE.MeshBasicMaterial({
+      map:tex,
+      transparent:true
+    })
+  );
+
+  num.position.z=.34;
+  num.position.y=.02;
+
+  group.add(num);
+
+  return group;
+}
+
+
+/* Spieler */
+
+function createPlayer(team,pos,number,name){
+
+  const g=new THREE.Group();
+
+  const skin=new THREE.MeshStandardMaterial({
+    color:0xd7956b,
+    roughness:.75
+  });
+
+  const shirt=new THREE.MeshStandardMaterial({
+    color:team===0?homeColor:awayColor,
+    roughness:.7
+  });
+
+  const trunk=new THREE.MeshStandardMaterial({
+    color:team===0?0x071f55:0x560d12,
+    roughness:.7
+  });
+
+
+  /* Oberkörper */
+
+  const body=new THREE.Mesh(
+    new THREE.CapsuleGeometry(.43,.72,6,10),
+    shirt
+  );
+
+  body.position.y=.35;
+  body.scale.z=.72;
+
+  g.add(body);
+
+
+  /* Kopf */
+
+  const head=new THREE.Mesh(
+    new THREE.SphereGeometry(.34,14,10),
+    skin
+  );
+
+  head.position.y=1.05;
+
+  g.add(head);
+
+
+  /* Kappe */
+
+  const helmet=cap(
+    team===0?0x0a62bd:0xc92835,
+    number
+  );
+
+  helmet.position.y=1.28;
+
+  g.add(helmet);
+
+
+  /* Arme */
+
+  const armGeo=new THREE.CapsuleGeometry(.13,.55,5,8);
+
+  const leftArm=new THREE.Mesh(armGeo,skin);
+  const rightArm=new THREE.Mesh(armGeo,skin);
+
+  leftArm.position.set(-.48,.42,0);
+  rightArm.position.set(.48,.42,0);
+
+  leftArm.rotation.z=-.45;
+  rightArm.rotation.z=.45;
+
+  g.add(leftArm,rightArm);
+
+
+  /* Trunk */
+
+  const shorts=new THREE.Mesh(
+    new THREE.BoxGeometry(.65,.28,.42),
+    trunk
+  );
+
+  shorts.position.y=-.05;
+
+  g.add(shorts);
+
+
+  g.position.set(pos.x,-.2,pos.z);
+
+  scene.add(g);
+
+  const p={
+    mesh:g,
+    team,
+    number,
+    name,
+    position:new THREE.Vector3(pos.x,0,pos.z),
+    home:new THREE.Vector3(pos.x,0,pos.z),
+    velocity:new THREE.Vector3(),
+    stamina:100,
+    target:null,
+    hasBall:false
+  };
+
+  players.push(p);
+
+  return p;
+}
+
+
+/* =========================================================
+   FORMATION
+========================================================= */
+
+const homeFormation=[
+  {x:0,z:-5.4},
+  {x:-4.5,z:-3.2},
+  {x:4.5,z:-3.2},
+  {x:-2.0,z:-1.4},
+  {x:2.0,z:-1.4},
+  {x:0,z:-.5}
+];
+
+const awayFormation=[
+  {x:0,z:5.4},
+  {x:-4.5,z:3.2},
+  {x:4.5,z:3.2},
+  {x:-2,z:1.4},
+  {x:2,z:1.4},
+  {x:0,z:.5}
+];
+
+const homeNames=[
+  "TW",
+  "LA",
+  "RA",
+  "LB",
+  "RB",
+  "CF"
+];
+
+const awayNames=[
+  "TW",
+  "LA",
+  "RA",
+  "LB",
+  "RB",
+  "CF"
+];
+
+
+for(let i=0;i<6;i++){
+
+  createPlayer(
+    0,
+    homeFormation[i],
+    i+1,
+    homeNames[i]
+  );
+
+  createPlayer(
+    1,
+    awayFormation[i],
+    i+1,
+    awayNames[i]
+  );
+}
+
+
+/* =========================================================
+   BALL
+========================================================= */
+
+const ball=new THREE.Mesh(
+  new THREE.SphereGeometry(.18,18,12),
+  new THREE.MeshStandardMaterial({
+    color:0xffffff,
+    roughness:.5
+  })
+);
+
+scene.add(ball);
+
+const ballVelocity=new THREE.Vector3();
+
+let controlled=players[5];
+controlled.hasBall=true;
+
+
+/* =========================================================
+   TOUCH JOYSTICK
+========================================================= */
+
+const joystick=document.querySelector("#joystick");
+const stick=document.querySelector("#stick");
+
+let joyX=0;
+let joyY=0;
+let joyActive=false;
+
+function joystickMove(x,y){
+
+  const rect=joystick.getBoundingClientRect();
+
+  let dx=x-(rect.left+rect.width/2);
+  let dy=y-(rect.top+rect.height/2);
+
+  const max=50;
+
+  const len=Math.hypot(dx,dy);
+
+  if(len>max){
+    dx=dx/len*max;
+    dy=dy/len*max;
+  }
+
+  joyX=dx/max;
+  joyY=dy/max;
+
+  stick.style.transform=
+    `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`;
+}
+
+joystick.addEventListener("pointerdown",e=>{
+  joyActive=true;
+  joystickMove(e.clientX,e.clientY);
+});
+
+window.addEventListener("pointermove",e=>{
+  if(joyActive) joystickMove(e.clientX,e.clientY);
+});
+
+window.addEventListener("pointerup",()=>{
+  joyActive=false;
+  joyX=0;
+  joyY=0;
+  stick.style.transform="translate(-50%,-50%)";
+});
+
+
+/* =========================================================
+   SPIELERWECHSEL
+========================================================= */
+
+document.querySelector("#switch").addEventListener("pointerdown",()=>{
+
+  const own=players.filter(p=>p.team===0);
+
+  let index=own.indexOf(controlled);
+
+  index++;
+
+  if(index>=own.length) index=0;
+
+  controlled.hasBall=false;
+
+  controlled=own[index];
+
+  controlled.hasBall=true;
+
+  showMessage(controlled.name);
+});
+
+
+/* =========================================================
+   PASS
+========================================================= */
+
+document.querySelector("#pass").addEventListener("pointerdown",()=>{
+
+  if(!controlled.hasBall) return;
+
+  const teammates=players
+    .filter(p=>p.team===controlled.team && p!==controlled)
+    .sort((a,b)=>
+      a.position.distanceTo(controlled.position)-
+      b.position.distanceTo(controlled.position)
+    );
+
+  const target=teammates[0];
+
+  if(!target)return;
+
+  ball.position.copy(controlled.position);
+  ball.position.y=.35;
+
+  ballVelocity
+    .copy(target.position)
+    .sub(ball.position)
+    .normalize()
+    .multiplyScalar(9);
+
+  controlled.hasBall=false;
+
+  setTimeout(()=>{
+
+    if(target.team===0){
+
+      controlled=target;
+      controlled.hasBall=true;
+
+    }
+
+  },450);
+});
+
+
+/* =========================================================
+   WURF
+========================================================= */
+
+document.querySelector("#shoot").addEventListener("pointerdown",()=>{
+
+  if(!controlled.hasBall)return;
+
+  controlled.hasBall=false;
+
+  ball.position.copy(controlled.position);
+  ball.position.y=.4;
+
+  const targetZ=controlled.team===0?6.5:-6.5;
+
+  ballVelocity.set(
+    (Math.random()-.5)*1.8,
+    2.2,
+    controlled.team===0?8:-8
+  );
+
+  showMessage("WURF!");
+});
+
+
+/* =========================================================
+   SPRINT
+========================================================= */
+
+let sprint=false;
+
+document.querySelector("#sprint").addEventListener("pointerdown",()=>{
+  sprint=true;
+});
+
+window.addEventListener("pointerup",()=>{
+  sprint=false;
+});
+
+
+/* =========================================================
+   KI
+========================================================= */
+
+function updateAI(dt){
+
+  players.forEach(p=>{
+
+    if(p===controlled)return;
+
+    const attacking=p.team===0;
+
+    let target=p.home.clone();
+
+    /*
+      Spieler verschieben sich je nach Ballseite,
+      bleiben aber grundsätzlich in ihrer Formation.
+    */
+
+    if(ball.position.z < 0 && attacking){
+
+      target.z-=.8;
+
+    }
+
+    if(ball.position.z > 0 && !attacking){
+
+      target.z+=.8;
+
+    }
+
+    if(p.name==="CF"){
+
+      target.z += attacking?-1.4:1.4;
+
+    }
+
+    const dir=target.clone().sub(p.position);
+
+    if(dir.length()>.15){
+
+      dir.normalize();
+
+      p.velocity.lerp(
+        dir.multiplyScalar(1.5),
+        .04
+      );
+
+      p.position.addScaledVector(
+        p.velocity,
+        dt
+      );
+
+    }
+
+    p.mesh.position.x=p.position.x;
+    p.mesh.position.z=p.position.z;
+
+  });
+}
+
+
+/* =========================================================
+   CONTROLLED PLAYER
+========================================================= */
+
+function updateControlled(dt){
+
+  const speed=
+    sprint && controlled.stamina>8
+      ?3.7
+      :2.2;
+
+  const move=new THREE.Vector3(
+    joyX,
+    0,
+    joyY
+  );
+
+  if(move.length()>1)move.normalize();
+
+  controlled.position.x+=move.x*speed*dt;
+  controlled.position.z+=move.z*speed*dt;
+
+  controlled.position.x=
+    THREE.MathUtils.clamp(
+      controlled.position.x,
+      -10.5,
+      10.5
+    );
+
+  controlled.position.z=
+    THREE.MathUtils.clamp(
+      controlled.position.z,
+      -5.4,
+      5.4
+    );
+
+  if(
+    sprint &&
+    move.length()>.1
+  ){
+
+    controlled.stamina-=
+      5*dt;
+
+  }else{
+
+    controlled.stamina+=
+      2.8*dt;
+
+  }
+
+  controlled.stamina=
+    THREE.MathUtils.clamp(
+      controlled.stamina,
+      0,
+      100
+    );
+
+  controlled.mesh.position.x=
+    controlled.position.x;
+
+  controlled.mesh.position.z=
+    controlled.position.z;
+
+  document.querySelector("#stamina").style.width=
+    controlled.stamina+"%";
+}
+
+
+/* =========================================================
+   BALL
+========================================================= */
+
+function updateBall(dt){
+
+  if(controlled.hasBall){
+
+    ball.position.set(
+      controlled.position.x,
+      .35,
+      controlled.position.z-.65
+    );
+
+    return;
+  }
+
+  ball.position.addScaledVector(
+    ballVelocity,
+    dt
+  );
+
+  ballVelocity.multiplyScalar(
+    Math.pow(.15,dt)
+  );
+
+  ballVelocity.y-=4.5*dt;
+
+  if(ball.position.y<.05){
+
+    ball.position.y=.05;
+    ballVelocity.y*=-.3;
+
+  }
+
+
+  /* Tor */
+
+  if(
+    Math.abs(ball.position.z)>6.05 &&
+    Math.abs(ball.position.x)<3
+  ){
+
+    const scoringHome=
+      ball.position.z>0;
+
+    scoreGoal(
+      scoringHome?1:0
+    );
+
+    ballVelocity.set(0,0,0);
+
+  }
+}
+
+
+/* =========================================================
+   TOR
+========================================================= */
+
+let homeScore=0;
+let awayScore=0;
+
+function scoreGoal(team){
+
+  if(team===0) homeScore++;
+  else awayScore++;
+
+  document.querySelector("#homeScore").textContent=
+    homeScore;
+
+  document.querySelector("#awayScore").textContent=
+    awayScore;
+
+  showMessage(
+    team===0
+      ?"TOR SV LOK!"
+      :"TOR PLAUEN!"
+  );
+
+  setTimeout(resetAfterGoal,1300);
+}
+
+function resetAfterGoal(){
+
+  players.forEach(p=>{
+
+    p.position.copy(p.home);
+
+    p.mesh.position.x=p.home.x;
+    p.mesh.position.z=p.home.z;
+
+  });
+
+  controlled=players[5];
+  controlled.hasBall=true;
+
+  ballVelocity.set(0,0,0);
+}
+
+
+/* =========================================================
+   NACHRICHT
+========================================================= */
+
+let messageTimer=0;
+
+function showMessage(text){
+
+  const el=document.querySelector("#message");
+
+  el.textContent=text;
+  el.style.opacity=1;
+
+  messageTimer=1.1;
+}
+
+
+/* =========================================================
+   SPIELZEIT
+========================================================= */
+
+let gameTime=480;
+
+function updateClock(dt){
+
+  gameTime-=dt;
+
+  if(gameTime<0)gameTime=0;
+
+  const min=
+    Math.floor(gameTime/60);
+
+  const sec=
+    Math.floor(gameTime%60)
+      .toString()
+      .padStart(2,"0");
+
+  document.querySelector("#clock").textContent=
+    "1. Viertel · "+min+":"+sec;
+}
+
+
+/* =========================================================
+   KAMERA
+========================================================= */
+
+function updateCamera(dt){
+
+  const desired=new THREE.Vector3(
+    controlled.position.x*.35,
+    13.5,
+    controlled.position.z+17
+  );
+
+  camera.position.lerp(
+    desired,
+    1-Math.pow(.001,dt)
+  );
+
+  camera.lookAt(
+    controlled.position.x,
+    0,
+    controlled.position.z
+  );
+}
+
+
+/* =========================================================
+   ANIMATION
+========================================================= */
+
+let last=performance.now();
+
+function animate(now){
+
+  requestAnimationFrame(animate);
+
+  const dt=
+    Math.min(
+      (now-last)/1000,
+      .033
+    );
+
+  last=now;
+
+  updateControlled(dt);
+  updateAI(dt);
+  updateBall(dt);
+  updateClock(dt);
+  updateCamera(dt);
+
+
+  /* Spieler wippen leicht im Wasser */
+
+  players.forEach(p=>{
+
+    const moving=
+      p.velocity.length()>.1;
+
+    const t=
+      performance.now()*.004+
+      p.number;
+
+    p.mesh.position.y=
+      -.22+
+      Math.sin(t)*.035;
+
+    if(moving){
+
+      p.mesh.rotation.y=
+        Math.sin(t)*.08;
+
+    }
+
+  });
+
+
+  /* Wasserbewegung */
+
+  const pos=water.geometry.attributes.position;
+
+  for(let i=0;i<pos.count;i++){
+
+    const x=pos.getX(i);
+    const z=pos.getY(i);
+
+    pos.setZ(
+      i,
+      Math.sin(
+        x*.9+
+        performance.now()*.0015
+      )*.035+
+      Math.cos(
+        z*1.2+
+        performance.now()*.001
+      )*.025
+    );
+
+  }
+
+  pos.needsUpdate=true;
+
+
+  if(messageTimer>0){
+
+    messageTimer-=dt;
+
+    if(messageTimer<=0)
+      document.querySelector("#message").style.opacity=0;
+
+  }
+
+  renderer.render(scene,camera);
+}
+
+animate(performance.now());
+
+
+/* =========================================================
+   RESIZE
+========================================================= */
+
+addEventListener("resize",()=>{
+
+  camera.aspect=
+    innerWidth/innerHeight;
+
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+
+});
+
+
+</script>
+</body>
+</html>
